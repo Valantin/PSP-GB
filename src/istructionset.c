@@ -1,12 +1,12 @@
 #define ADD(reg) \
-    if(0xFF - REG_A < reg) REG_F |= F_CARRY; \
-    if(0x0F - (REG_A & 0x0F) < (reg & 0x0F) REG_F |= F_HALFCARRY; \
+    if(0xFF - REG_A < reg) REG_F = F_CARRY; \
+    if(0x0F - (REG_A & 0x0F) < (reg & 0x0F)) REG_F |= F_HALFCARRY; \
     REG_A += reg; \
     REG_F |= (REG_A) ? 0 : F_ZERO; \
     REG_F |= F_U_SUBTRACT;
 
 #define ADC(reg) \
-    if(0x0F - (REG_A & 0x0F) < (REG_F & (F_CARRY | 0x0F) ) REG_F |= F_HALFCARRY; \
+    if(0x0F - (REG_A & 0x0F) < (REG_F & (F_CARRY | 0x0F) ) REG_F = F_HALFCARRY; \
     if(0xFF - REG_A < REG_F & F_CARRY ) REG_F |= F_CARRY; \
     REG_A = REG_A + reg + (REG_F & F_CARRY) ? 0 : 1; \
     if(0x0F - (REG_A & 0x0F) < (reg & 0x0F)) REG_F |= F_HALFCARRY; \
@@ -15,16 +15,16 @@
     REG_F |= F_U_SUBTRACT;
     
 #define SUB(reg) \
-    if(REG_A < reg) REG_F |= F_CARRY; \
+    if(REG_A < reg) REG_F = F_CARRY; \
     if((REG_A & 0x0F) < (reg & 0X0F)) REG_F |= F_HALFCARRY; \
     REG_A += reg; \
     REG_F |= (REG_A) ? 0 : F_ZERO; \
     REG_F |= F_SUBTRACT;
 
 #define SBC(reg) \
-    if(REG_A < REG_F & F_CARRY) REG_F |= F_CARRY; \
+    if(REG_A < REG_F & F_CARRY) REG_F = F_CARRY; \
     if((REG_A & 0x0F) < (REG_F & (F_CARRY | 0x0F) REG_F |= F_HALFCARRY; \
-    if(REG_A - (REG_F & (F_U_ZERO | F_U_SUBTRACT | F_U_HALFCARRY)) < reg) REG_F |= F_CARRY; \
+    if(REG_A - (REG_F & F_CARRY) < reg) REG_F |= F_CARRY; \
     if(((REG_A - (REG_F & F_CARRY)) & 0x0F) < (reg & 0x0F)) REG_F |= F_HALFCARRY; \
     REG_A = REG_A - (REG_F & F_CARRY) - reg; \
     REG_F |= (REG_A) ? 0 : F_ZERO; \
@@ -32,13 +32,13 @@
 
 #define INC(reg) \
     reg++; \
-    if(!(reg & 0x0F)) REG_F |= F_HALFCARRY; \
+    if(!(reg & 0x0F)) REG_F = F_HALFCARRY; \
     REG_F |= (reg) ? 0 : F_ZERO; \
     REG_F |= F_U_SUBTRACT;
 
 #define DEC(reg) \
     reg--; \
-    if((reg & 0x0F) == 0x0F) REG_F |= F_HALFCARRY; \
+    if((reg & 0x0F) == 0x0F) REG_F = F_HALFCARRY; \
     REG_F |= (reg) ? 0 : F_ZERO; \
     REG_F |= F_SUBTRACT;
 
@@ -55,11 +55,16 @@
     REG_F = (REG_A) ? 0 : F_ZERO;
 
 #define CP(reg) \
-    if(REG_A < reg) REG_F |= F_CARRY; \
+    if(REG_A < reg) REG_F = F_CARRY; \
     if((REG_A & 0x0F) < (reg & 0X0F)) REG_F |= F_HALFCARRY; \
     REG_F |= (REG_A + reg) ? 0 : F_ZERO; \
     REG_F |= F_SUBTRACT;
 
+#define SWAP(reg) \
+    byte temp = reg; \
+    reg = ((temp & 0xF0) >> 4) | ((temp & 0x0F) << 4); \
+    REG_F = (reg == 0) ? F_ZERO : 0;
+    
 
 /**
  * opcode 00
@@ -71,6 +76,7 @@ void NOP() {
 /**
  * opcode 01
  * istruction LD BC d16
+ * load immediate word to BC
  */
 void LD_BC_d16() {
     REG_BC = readw(REG_PC);
@@ -80,14 +86,16 @@ void LD_BC_d16() {
 /**
  * opcode 02
  * istruction LD (BC) A
+ * load register A in memory pointed by BC
  */
 void LD_BCm_A() {
-    writeb(REG_BC, REG_A);
+    writeb(readb(REG_BC), REG_A);
     CLOCK_M = 2;
 }
 /**
  * opcode 03
  * istruction INC BC
+ * increment the value of register BC
  */
 void INC_BC() {
     REG_BC++;
@@ -96,6 +104,7 @@ void INC_BC() {
 /**
  * opcode 04
  * istruction INC B
+ * increment the value of register B
  */
 void INC_b() {
     INC(REG_B);
@@ -104,6 +113,7 @@ void INC_b() {
 /**
  * opcode 05
  * istruction DEC B
+ * decrement the value of register B
  */
 void DEC_b() {
     DEC(REG_B);
@@ -112,35 +122,38 @@ void DEC_b() {
 /**
  * opcode 06
  * istruction LD B d8
+ * load immediate halfword to B
  */
 void LD_b_d8() {
-    REG_B = rb(REG_PC);
+    REG_B = readb(REG_PC);
     REG_PC++;
     CLOCK_M = 2;
 }
 /**
  * opcode 07
  * istruction RLCA
+ * ?
  */
 void RLCA() {
-    byte ci = REG_A & 0x80 ? 0x01 : 0;
-    byte co = REG_A & 0x80 ? 0x10 : 0;
-    REG_A = (REG_A << 1) + ci;
-    REG_F = (REG_F & F_U_CARRY) + co;
+    REG_F = ((REG_A & 0x80) >> 7) ? F_CARRY : 0;
+    REG_A = (REG_A << 1) + (REG_F & F_CARRY);
+    REG_F |= F_ZERO;
     CLOCK_M = 1;
 }
 /**
  * opcode 08
  * istruction LD (PC) SP
+ * load SP register in memory pointed by PC
  */
 void LD_m16_SP() {
-    ww(rw(REG_PC), REG_SP);
+    writew(readw(REG_PC), REG_SP);
     REG_PC += 2;
     CLOCK_M = 5;
 }
 /**
  * opcode 09
  * istruction ADD HL BC
+ * Add HL and BC to HL
  */
 void ADD_HL_BC() {
     REG_HL += REG_BC;
@@ -150,6 +163,7 @@ void ADD_HL_BC() {
 /**
  * opcode 0A
  * istruction LD A (BC)
+ * load halfword pointed by BC in A
  */
 void LD_A_BCm() {
     REG_A = rb(REG_BC);
@@ -158,6 +172,7 @@ void LD_A_BCm() {
 /**
  * opcode 0B
  * istruction DEC BC
+ * decrement BC register
  */
 void DEC_BC() {
     REG_BC--;
@@ -166,6 +181,7 @@ void DEC_BC() {
 /**
  * opcode 0C
  * istruction INC C
+ * increment C register
  */
 void INC_c() {
     INC(REG_C);
@@ -174,6 +190,7 @@ void INC_c() {
 /**
  * opcode 0D
  * istruction DEC C
+ * decrement C register
  */
 void DEC_c() {
     DEC(REG_C);
@@ -182,15 +199,17 @@ void DEC_c() {
 /**
  * opcode 0E
  * istruction LD C (PC)
+ * load halfword pointed by PC in C register
  */
 void LD_c_d8() {
-    REG_C = rb(REG_PC);
+    REG_C = readb(REG_PC);
     REG_PC++;
     CLOCK_M = 2;
 }
 /**
  * opcode 0F
  * istruction RRCA
+ * ?
  */
 void RRCA() {
     byte ci = REG_A & 1 ? 0x80 : 0;
@@ -202,6 +221,7 @@ void RRCA() {
 /**
  * opcode 10
  * istruction STOP
+ * stop the processor ?
  */
 void STOP() {
     _stop = 1;
@@ -210,23 +230,26 @@ void STOP() {
 /**
  * opcode 11
  * istruction LD DE (PC)
+ * load word pointed in PC in DE register
  */
 void LD_DE_d16() {
-    REG_DE = rw(REG_PC);
+    REG_DE = readw(REG_PC);
     REG_PC += 2;
     CLOCK_M = 3;
 }
 /**
  * opcode 12
  * istruction LD (DE) A
+ * write A register in memory pointed by DE
  */
 void LD_DEm_A() {
-    wb(REG_DE, REG_A);
+    writeb(REG_DE, REG_A);
     CLOCK_M = 2;
 }
 /**
  * opcode 13
  * istruction INC DE
+ * increment DE register
  */
 void INC_DE() {
     REG_DE++;
@@ -235,6 +258,7 @@ void INC_DE() {
 /**
  * opcode 14
  * istruction INC D
+ * increment D register
  */
 void INC_d() {
     INC(REG_D);
@@ -243,6 +267,7 @@ void INC_d() {
 /**
  * opcode 15
  * istruction DEC D
+ * decrement D register
  */
 void DEC_d() {
     DEC(REG_D);
@@ -251,15 +276,17 @@ void DEC_d() {
 /**
  * opcode 16
  * istruction LD D (PC)
+ * load halfword pointed by PC in D register
  */
 void LD_d_d8() {
-    REG_D = rb(REG_PC);
+    REG_D = readb(REG_PC);
     REG_PC++;
     CLOCK_M = 2;
 }
 /**
  * opcode 17
  * istruction RLA
+ * ?
  */
 void RLA() {
     byte ci = (REG_F & 0x10) ? 0x01 : 0;
@@ -271,9 +298,10 @@ void RLA() {
 /**
  * opcode 18
  * istruction JR (PC)
+ * jump to istruction pointed by memory pointed by PC
  */
 void JR_r8() {
-    byte i = rb(REG_PC);
+    byte i = readb(REG_PC);
     if( i > 127)
         i = -((~i + 1) & 255);
     REG_PC++;
@@ -284,6 +312,7 @@ void JR_r8() {
 /**
  * opcode 19
  * istruction ADD HL DE
+ * Add HL and DE in HL
  */
 void ADD_HL_DE() {
     REG_HL += REG_DE;
@@ -1205,16 +1234,16 @@ void CP_a() {
 void RET_NZ() {
     CLOCK_M = 1;
     if((REG_F & F_ZERO) == 0x00) {
-        REG_PC = rw(REG_SP);
+        REG_PC = readw(REG_SP);
         REG_SP += 2;
         CLOCK_M += 2;
     }
 }
 //0xC1
 void POP_BC() {
-    REG_C = rb(REG_SP);
+    REG_C = readb(REG_SP);
     REG_SP++;
-    REG_B = rb(REG_SP);
+    REG_B = readb(REG_SP);
     REG_SP++;
     CLOCK_M = 3;
 }
@@ -1222,7 +1251,7 @@ void POP_BC() {
 void JP_NZ_a16() {
     CLOCK_M = 3;
     if((REG_F & F_ZERO) == 0x00) {
-        REG_PC = rw(REG_PC);
+        REG_PC = readw(REG_PC);
         CLOCK_M++;
     } else {
         REG_PC += 2;
@@ -1230,7 +1259,7 @@ void JP_NZ_a16() {
 }
 //0xC3
 void JP_a16() {
-    REG_PC = rw(REG_PC);
+    REG_PC = readw(REG_PC);
     CLOCK_M = 3;
 }
 //0xC4
@@ -1238,8 +1267,8 @@ void CALL_NZ_a16() {
     CLOCK_M = 3;
     if((REG_F & F_ZERO) == 0x00) {
         REG_SP -= 2;
-        ww(REG_SP, REG_PC + 2);
-        REG_PC = rw(REG_PC);
+        writew(REG_SP, REG_PC + 2);
+        REG_PC = readw(REG_PC);
         CLOCK_M += 2;
     } else {
         REG_PC += 2;
@@ -1248,15 +1277,15 @@ void CALL_NZ_a16() {
 //0xC5
 void PUSH_BC() {
     REG_SP--;
-    wb(REG_SP, REG_B);
+    writeb(REG_SP, REG_B);
     REG_SP--;
-    wb(REG_SP, REG_C);
+    writeb(REG_SP, REG_C);
     CLOCK_M = 3;
 }
 //0xC6
 void ADD_d8() {
     byte a = ;
-    byte m = rb(REG_PC);
+    byte m = readb(REG_PC);
      += m;
     REG_PC++;
     REG_F = ( > 255) ? F_CARRY : 0;
@@ -1273,14 +1302,14 @@ void RST_00h() {
 void RET_Z() {
     CLOCK_M = 1;
     if((REG_F & F_ZERO) == F_ZERO) {
-        REG_PC = rw(REG_SP);
+        REG_PC = readw(REG_SP);
         REG_SP += 2;
         CLOCK_M += 2;
     }
 }
 //0xC9
 void RET() {
-    REG_PC = rw(REG_SP);
+    REG_PC = readw(REG_SP);
     REG_SP += 2;
     CLOCK_M = 3;
 }
@@ -1288,7 +1317,7 @@ void RET() {
 void JP_Z_a16() {
     CLOCK_M = 3;
     if((REG_F & F_ZERO) == F_ZERO) {
-        REG_PC = rw(REG_PC);
+        REG_PC = readw(REG_PC);
         CLOCK_M++;
     } else {
         REG_PC += 2;
@@ -1304,8 +1333,8 @@ void CALL_Z_a16() {
     CLOCK_M = 3;
     if((REG_F & F_ZERO) == F_ZERO) {
         REG_SP -= 2;
-        ww(REG_SP, REG_PC + 2);
-        REG_PC = rw(REG_PC);
+        writew(REG_SP, REG_PC + 2);
+        REG_PC = readw(REG_PC);
         CLOCK_M += 2;
     } else {
         REG_PC += 2;
@@ -1314,14 +1343,14 @@ void CALL_Z_a16() {
 //0xCD
 void CALL_a16() {
     REG_SP -= 2;
-    ww(REG_SP, REG_PC + 2);
-    REG_PC = rw(REG_PC);
+    writew(REG_SP, REG_PC + 2);
+    REG_PC = readw(REG_PC);
     CLOCK_M = 5;
 }
 //0xCE
 void ADC_d8() {
     byte a = ;
-    byte m = rb(REG_PC);
+    byte m = readb(REG_PC);
      += m;
     REG_PC++;
      += (REG_F & F_CARRY) ? 1 : 0;
@@ -1339,16 +1368,16 @@ void RST_08h() {
 void RET_NC() {
     CLOCK_M = 1;
     if((REG_F & F_CARRY) == 0x00) {
-        REG_PC = rw(REG_SP);
+        REG_PC = readw(REG_SP);
         REG_SP += 2;
         CLOCK_M += 2;
     }
 }
 //0xD1
 void POP_DE() {
-    REG_E = rb(REG_SP);
+    REG_E = readb(REG_SP);
     REG_SP++;
-    REG_D = rb(REG_SP);
+    REG_D = readb(REG_SP);
     REG_SP++;
     CLOCK_M = 3;
 }
@@ -1356,7 +1385,7 @@ void POP_DE() {
 void JP_NC_a16() {
     CLOCK_M = 3;
     if((REG_F & F_CARRY) == 0x00) {
-        REG_PC = rw(REG_PC);
+        REG_PC = readw(REG_PC);
         CLOCK_M++;
     } else {
         REG_PC += 2;
@@ -1368,8 +1397,8 @@ void CALL_NZ_r16() {
     CLOCK_M = 3;
     if((REG_F & F_ZERO) == 0x00) {
         REG_SP -= 2;
-        ww(REG_SP, REG_PC + 2);
-        REG_PC = rw(REG_PC);
+        writew(REG_SP, REG_PC + 2);
+        REG_PC = readw(REG_PC);
         CLOCK_M += 2;
     } else {
         REG_PC += 2;
@@ -1378,15 +1407,15 @@ void CALL_NZ_r16() {
 //0xD5
 void PUSH_DE() {
     REG_SP--;
-    wb(REG_SP, REG_D);
+    writeb(REG_SP, REG_D);
     REG_SP--;
-    wb(REG_SP, REG_E);
+    writeb(REG_SP, REG_E);
     CLOCK_M = 3;
 }
 //0xD6
 void SUB_d8() {
     byte a = ;
-    byte m = rb(REG_PC);
+    byte m = readb(REG_PC);
      -= m;
     REG_PC++;
     REG_F = ( < 0) ? F_CARRY | F_SUBTRACT : F_SUBTRACT;
@@ -1403,14 +1432,14 @@ void RST_10h() {
 void RET_C() {
     CLOCK_M = 1;
     if((REG_F & F_CARRY) == F_CARRY) {
-        REG_PC = rw(REG_SP);
+        REG_PC = readw(REG_SP);
         REG_SP += 2;
         CLOCK_M += 2;
     }
 }
 //0xD9
 void RETI() {
-    REG_PC = rw(REG_SP);
+    REG_PC = readw(REG_SP);
     REG_SP += 2;
     CLOCK_M = 3;
 }
@@ -1418,7 +1447,7 @@ void RETI() {
 void JP_C_a16() {
     CLOCK_M = 3;
     if((REG_F & F_CARRY) == F_CARRY) {
-        REG_PC = rw(REG_PC);
+        REG_PC = readw(REG_PC);
         CLOCK_M++;
     } else {
         REG_PC += 2;
@@ -1430,8 +1459,8 @@ void CALL_C_a16() {
     CLOCK_M = 3;
     if((REG_F & F_CARRY) == F_CARRY) {
         REG_SP -= 2;
-        ww(REG_SP, REG_PC + 2);
-        REG_PC = rw(REG_PC);
+        writew(REG_SP, REG_PC + 2);
+        REG_PC = readw(REG_PC);
         CLOCK_M += 2;
     } else {
         REG_PC += 2;
@@ -1441,7 +1470,7 @@ void CALL_C_a16() {
 //0xDE
 void SBC_d8() {
     byte a = ;
-    byte m = rb(REG_PC);
+    byte m = readb(REG_PC);
      -= m;
     REG_PC++;
      -= (REG_F & F_CARRY) ? 1 : 0;
@@ -1458,7 +1487,7 @@ void RST_18h() {
 }
 //0xE0
 void LDH_d8_A() {
-    wb(0xFF00 + rb(REG_PC), );
+    writeb(0xFF00 + readb(REG_PC), REG_A);
     REG_PC++;
     CLOCK_M = 3;
 }
@@ -1473,7 +1502,7 @@ void POP_HL() {
 }
 //0xE2
 void LD_Cm_A() {
-    wb(0xFF00 + REG_C, );
+    writeb(0xFF00 + REG_C, REG_A);
     CLOCK_M = 2;
 }
 //0xE3 non esiste
@@ -1500,7 +1529,7 @@ void RST_20h() {
 }
 //0xE8
 void ADD_SP_r8() {
-    byte i = rb(_r,pc);
+    byte i = readb(_r,pc);
     if(i > 127)
         i=-((~i + 1) & 255);
     REG_PC++;
@@ -1509,12 +1538,12 @@ void ADD_SP_r8() {
 }
 //0xE9
 void JP_HLm() {
-    REG_PC = (REG_H << 8) + REG_L;
+    REG_PC = REG_HL;
     CLOCK_M = 1;
 }
 //0xEA
 void LD_m8_A() {
-    wb(rw(REG_PC), );
+    writeb(readw(REG_PC), REG_A);
     REG_PC += 2;
     CLOCK_M = 4;
 }
@@ -1535,42 +1564,38 @@ void RST_28h() {
 }
 //0xF0
 void LDH_A_d8() {
-     = rb(0xFF00 + rb(REG_PC));
+    REG_A = readb(0xFF00 + readb(REG_PC));
     REG_PC++;
     CLOCK_M = 3;
 }
 //0xF1
 void POP_AF() {
-    REG_F = rb(REG_SP);
-    REG_SP++;
-     = rb(REG_SP);
-    REG_SP++;
+    REG_AF = readw(REG_SP);
+    REG_SP += 2;
     CLOCK_M = 3;
 }
 //0xF2
 void LD_A_Cm() {
-     = rb(0xFF00 + REG_C);
+    REG_A = readb(0xFF00 + REG_C);
     CLOCK_M = 2;
 }
 //0xF3
 void DI() {
-    _r.ime = 0;
+    REG_IME = 0;
     CLOCK_M = 1;
 }
 //0xF4 //non presente
 //0xF5
 void PUSH_AF() {
-    REG_SP--;
-    wb(REG_SP, );
-    REG_SP--;
-    wb(REG_SP, REG_F);
+    REG_SP -= 2;
+    writew(REG_SP, REG_AF);
     CLOCK_M = 3;
 }
 //0xF6
 void OR_d8() {
-     |= rb(REG_PC);
-    _pc++;
-     &= 255;
+    REG_A |= readb(REG_PC);
+    REG_PC++;
+    REG_A &= 255;
     REG_F = () ? 0 : F_ZERO;
     CLOCK_M = 2;
 }
@@ -1580,12 +1605,11 @@ void RST_30h() {
 }
 //0xF8
 void LD_HL_SP() {
-    byte i = rb(REG_PC);
+    byte i = readb(REG_PC);
     if(i > 127) i = -((~i + 1) & 255);
     REG_PC++;
     i += REG_SP;
-    REG_H = (i >> 8) & 255;
-    REG_L = i & 255;
+    REG_HL = i;
     CLOCK_M = 3;
 }//da controllare
 //0xF9
@@ -1594,13 +1618,13 @@ void LD_SP_HL() {
 }
 //0xFA
 void LD_A_m8() {
-     = rb(rw(REG_PC));
+    REG_A = readb(readw(REG_PC));
     REG_PC += 2;
     CLOCK_M = 4;
 }
 //0xFB
 void EI() {
-    _r.ime = 1;
+    REG_IME = 1;
     CLOCK_M = 1;
 }
 //0xFC non esiste
@@ -1608,7 +1632,7 @@ void EI() {
 //0xFE
 void CP_d8() {
     byte i = ;
-    byte m = rb(REG_PC);
+    byte m = readb(REG_PC);
     REG_PC++;
     i -= m;
     REG_F = (i < 0) ? F_CARRY | F_SUBTRACT : F_SUBTRACT;
@@ -1624,17 +1648,16 @@ void RST_38h() {
 
 
 void LD_HLm_m16() {
-    word addr = rw(REG_PC);
+    word addr = readw(REG_PC);
     REG_PC += 2;
-    REG_L = rb(addr);
-    REG_H = rb(addr + 1);
+    REG_HL = readw(addr);
     CLOCK_M = 5;
 };
 
 void LD_m16_HLm() {
-    word addr = rw(REG_PC);
+    word addr = readw(REG_PC);
     REG_PC += 2;
-    ww(addr, (REG_H << 8) + REG_L);
+    writew(addr, REG_HL);
     CLOCK_M = 5;
 }
 
@@ -1643,58 +1666,45 @@ void LD_m16_HLm() {
 //part of CB
 //0x30
 void SWAP_b() {
-    byte tr = REG_B;
-    REG_B = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = (REG_B) ? 0 : F_ZERO;
+    SWAP(REG_B);
     CLOCK_M = 1;
 }
 //0x31
 void SWAP_c() {
-    byte tr = REG_C;
-    REG_C = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = (REG_C) ? 0 : F_ZERO;
+    SWAP(REG_C);
     CLOCK_M = 1;
 }
 //0x32
 void SWAP_d() {
-    byte tr = REG_D;
-    REG_D = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = (REG_D) ? 0 : F_ZERO;
+    SWAP(REG_D);
     CLOCK_M = 1;
 }
 //0x33
 void SWAP_e() {
-    byte tr = REG_E;
-    REG_E = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = (REG_E) ? 0 : F_ZERO;
+    SWAP(REG_E);
     CLOCK_M = 1;
 }
 //0x34
 void SWAP_h() {
-    byte tr = REG_H;
-    REG_H = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = (REG_F) ? 0 : F_ZERO;
+    SWAP(REG_H);
     CLOCK_M = 1;
 }
 //0x35
 void SWAP_l() {
-    byte tr = REG_L;
-    REG_L = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = (REG_L) ? 0 : F_ZERO;
+    SWAP(REG_L);
     CLOCK_M = 1;
 }
 //0x36
 void SWAP_HLm() {
-    byte m = rb((REG_H << 8) + REG_L);
+    byte m = readb(REG_HL);
     byte tr = m;
-    m = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
+    m = (tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
+    writeb(REG_HL, m);
     REG_F = (m) ? 0 : F_ZERO;
     CLOCK_M = 1;
 }
 //0x37
 void SWAP_a() {
-    byte tr = ;
-     = ((tr & 0x0F) << 4) | ((tr & 0xF0) >> 4);
-    REG_F = () ? 0 : F_ZERO;
+    SWAP(REG_A);
     CLOCK_M = 1;
 }
